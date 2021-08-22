@@ -315,5 +315,92 @@
             }
         }
         ```
-       
- 
+
+2021.3.30
+
+- ![抽象概念](.flink_images/Window抽象概念.png)
+
+执行顺序：
+- 编程接口![编程接口](.flink_images/Window编程接口.png)
+- Assigner![Assigner](.flink_images/Window%20Assigner.png)
+- Trigger![Trigger](.flink_images/Window%20Trigger.png)
+
+Window Evictor
+CountEvictor: 窗口计算时，只保留最近N条element
+TimeEvictor: 窗口计算时，只保留最近N段事件范围的element
+DeltaEvictor: 窗口计算时，最新的一条element 于其他element 做delta计算，只保留delta在threshold 内的element
+
+Window Operator工作流程：
+1.获取element归属的windows
+2.获取element对应的key
+3.如果late data, 跳过
+4.将element 存入window state
+5.判断element 是否触发trigger
+6.获取window state, 注入window function
+7.清楚window state
+8.注册timer, 到窗口结束时间清理window
+
+
+Window State
+ListState: process(...)/evitor(...)
+AggregatingState: reduce(...)/aggregate
+
+Window trigger
+从processingTimeTimersQueue获取时间最早的一个Timer进行注册，比对触发后再从队列获取最早的那个Timer
+
+
+2021.3.23
+
+
+一.资源管理
+
+1. Slot Sharing：（Flink 1.10及以下）
+   Slot Sharing Group 中的任务可共用slot
+   默认所有节点在一个Slot Sharing Group 中
+   一个Slot中相同的任务只能有一个
+   运行一个作业所需的Slot数为最大并发数
+   相对负载均衡
+
+   结论：
+   自顶向下的资源管理
+   1.配置Job整体资源
+   2.配置简单，易用性强，适合拓扑简单和规模较小的作业
+   3.资源利用率非最优
+   4.对资源的不确定性
+
+
+2. 细粒度资源管理：
+   算子的资源需求是已知的
+   每个Task独占一个Slot
+
+细粒度资源管理  ->   动态Slot切分(共用Slot)  ->  动态Slot 切分（共用整块资源）
+ - 碎片化问题：
+   + （1）根据SlotRequest资源需求定制TM资源,彻底杜绝资源碎片化
+   >代价：延长作业调度时间
+   >> 收到SlotRequest才能申请资源，响应时间相对较长;
+   >> TM资源难以复用，因为不能保证每次申请的资源都是相同大小
+   + （2）流和批的不同需求
+      - Streaming:
+      ```
+      一次调度，长期运行
+      提高资源利用率的收益高
+      适合采用定制TM资源的调度策略
+     ```
+      - Batch:
+      ```
+      频繁调度，运行时间短
+      对调度延迟敏感
+      适合采用非定制化TM资源的策略
+     ```
+
+
+细粒度资源下的资源调优：
+ - 自底向上的资源管理
+ - 配置Task资源需求难度较高
+Spark根据负载弹性伸缩集群的策略
+
+Flink解决均衡问题：
+1. 改进Task策略，尽可能保证算子Task在TM间均衡 
+2. Flink按照历史实际使用峰值申请
+3. YARN报障按照自愿分配率尽可能均衡
+4. 当有机器扩缩容时，产出重新均衡的作业调整计划
